@@ -1,0 +1,169 @@
+---
+name: dsh-session-conductor
+description: dsh-session-conductor 插件（DSH 会话管理增强 ）使用手册：会话管理面板（侧边栏「会话管理」入口，全部/已归档/活跃/说明四视图）、设置左侧栏独立页（与 Skill 记分板同类； 修空白：必须 React.createElement 不能 jsx(Component,null)）、自动重命名、自动续跑、置为不活跃、会话按工作区分组显示、价值分析、损坏修复的使用方法与验证。面向 AI 与使用者（含通用行为约定浓缩）。时加载；插件不可用/报错排查时必加载。细节以 skills/dsh-session-conductor-functions.md（功能说明书）为准。
+whenToUse: 需要用本插件管理/操作会话但不确定怎么做、面板入口在哪、报错排查、需要了解插件能力清单时。
+---
+
+# dsh-session-conductor 使用手册
+
+> 版本：。DSH 会话管理增强插件：**三段式流程审计**（deepseek 分析 → 指定模型执行 → deepseek 验收）、归档会话可恢复、AI 自动重命名、非人为中断自动续跑、手动释放活跃会话、会话按工作区分组显示、撤回最后一条用户消息。设置入口是与 Skill 记分板相同的**设置左侧栏独立页**。 修「导航有了内容全空」：设置页必须 `React.createElement`，禁止 `jsx(Component, null)`。
+
+## 一、快速上手
+
+1. **打开面板**：侧边栏底部（设置上方）「会话管理」按钮。设置页：设置左侧栏「会话管理」独立页（ 起页面用 createElement，不再空白）。
+2. **看会话**：面板四视图——「全部会话」（按工作区分组）/「已归档」/「活跃」（ 新增，live/running 会话）/「说明」。
+3. **常用操作**：点会话行进入对话；行内勾选 自动重命名 / 自动续跑；「⋯」更多里有 归档 / 恢复 / 删除 / 置为不活跃 / 撤回消息 / 分析。
+4. **验证**：`curl http://<DSH 地址>/api/session-conductor/list | head` 应返回会话 JSON（DSH 地址需 hostname -I 实测）。
+
+## 二、面板四视图
+
+| 视图 | 内容 |
+|---|---|
+| 全部会话 | 全部未归档会话，按工作区分组（cwd 最深祖先分组，可折叠，未匹配归「未分组」） |
+| 已归档 | 归档会话，按归档工作区前缀分组；可恢复（取消归档）、删除 |
+| 活跃 | ** 新增**：live（挂载内存）或 running（运行中）的会话，方便找活跃会话 |
+| 说明 | 本插件各能力说明（删除/自动重命名/自动续跑/置为不活跃/修复/分组显示新建会话） |
+
+搜索框：标题/cwd/id/状态词过滤（Enter 触发全文搜索）；多选勾选批量删除；按条件删除（归档状态/超期天数/cwd 前缀，可预览）。
+
+## 三、核心能力速查
+
+| 能力 | 怎么用 | 说明 |
+|---|---|---|
+| 归档/恢复 | 面板「⋯」菜单 | 归档隐藏、数据保留；恢复即取消归档 |
+| 删除 | 面板行内/批量/按条件 | 拒绝运行中会话；二次确认 |
+| 撤回消息 | 面板「⋯」→ 撤回消息 | 删最后一条真实用户消息及其回复，可预览可恢复 |
+| 自动重命名 | 行内勾选 | AI 分析主题偏离时自动改标题 |
+| 自动续跑 | 行内勾选 | 非人为中断自动继续（带多重防护） |
+| 置为不活跃 | 面板按钮 | 释放空闲会话内存，记录保留 |
+| 分组显示 | 面板「全部会话」视图 | 按工作区分组显示（只读；分组管理用 DSH 官方 workspace 机制） |
+| 价值分析 | 面板分析按钮 / value-analysis API | 五维价值 + 关键词置顶 |
+| 修复 | 面板「扫描并修复」/ repair API | 损坏日志修复（seq-gap/EIO/帧） |
+| 聚合设置页 | 设置 → 侧边栏「会话管理」 | 额外 md 集中配置（仿 skill-scoreboard 侧边栏） |
+
+## 四、新功能详解（ / ）
+
+- 用途：把团队规范、项目说明、个人偏好等 md 变成 AI 的常驻上下文。
+
+
+### 活跃分组
+- 面板「活跃」视图：一眼看到当前 live/running 的会话（不再翻全部列表）。
+
+## 五、验证清单
+
+- 面板能打开、四视图切换正常、列表有会话。
+- 操作后列表自动刷新。
+- `curl -s http://<DSH 地址>/api/session-conductor/list | python3 -m json.tool | head` 正常。
+- 全量测试：`node test/run-all.mjs`（判定看**退出码**，别只看 `# fail` 行——模块级崩溃不打 fail 行）。
+
+## 六、测试体系约定（改插件的 API/前端时照做）
+
+- `test/api/*` 只打**运行中宿主的 HTTP**，不 import 宿主包（免「测试依赖宿主包」的脆弱）；宿主不可用时明确跳过并说明，不伪装通过。
+- **首次调用走冷路径会明显慢**（实测：`/list` 冷 >20s、`delete-by-rule`（dryRun 全量扫描）热 47s / 冷 68s）。
+  所以 `test/api/helpers/host-api.mjs` 的默认超时是 **120s**（`SC_TIMEOUT_MS` 可覆盖，单次调用可传
+  `{ timeoutMs }`）：超时是为了让「路由没回响应」这类**真挂死**在几十秒内明确报错，而不是把「慢」当「挂」。
+- **每个 `register({kind:'prefix'})` 的路由都必须以响应收尾**（未匹配也要 404）——prefix 路由不会把请求
+  交回框架，漏写响应 = 请求永不返回。回归护栏：`test/unit/test-group-route-fallthrough.mjs`
+  （直接调 handler 断言必回 404，免宿主；把兜底注释掉该用例会红）。
+
+## 七、坑速查
+
+1. 撤回消息只删 source.kind==="user" 的真实用户消息（注入的 context/reminder 也是 user/message 类型，不会误删）。
+2. 自动续跑有上限：活跃会话 ≥12（maxAttached）暂停自动续跑；同会话 15 分钟冷却；每会话最多续 3 次。
+4. 删除运行中会话会被拒（先停或等回合结束）。
+5. systemPrompt section.text 只支持同步函数——插件内部 md 注入用同步读盘实现（用户无需关心，仅排查时注意）。
+6. `/api/session-conductor/group` 是 prefix 路由，整个子命名空间归本插件：**未匹配的路径/方法必须就地回 404**，
+   否则请求永不响应（历史事故：`GET /group` 缺 workspaceId 时挂死 → api 测试 timeout 124）。
+
+## 八、安装与发布
+
+### 装到 profile（正确姿势）
+
+`dsh plugin` 会把参数**转发给指定 profile 目录下的 pnpm**（首次使用会初始化该 profile），
+所以下面的命令与「在 profile 目录里直接跑 pnpm」等价：
+
+```bash
+# 1) 源码进 profile 的真实目录（目录拷贝，不要软链）
+cp -r <本插件目录> "$DSH_HOME/profiles/<profile>/local-plugins/dsh-session-conductor"
+
+# 2) 用 dsh 在该 profile 装依赖（写入 profile 的 package.json 与 node_modules/）
+dsh plugin --profile <profile> add file:local-plugins/dsh-session-conductor
+dsh plugin --profile <profile> install
+```
+
+装完检查三件事：
+1. profile `package.json` 的 `dependencies` 里有 `"dsh-session-conductor": "file:local-plugins/dsh-session-conductor"`；
+2. `dsh.profile.bundles` 里有插件名；
+3. 插件自带的 `cordis.patch.yml` 用的是**顶层 `- insert:`** —— 顶层 `- id:` 是"覆盖已有行"，
+   基座没有该 id 时市场会报 `patch target not found`。
+
+装前先 dry-run 预演（入口能否 import、patch 能否进组合树、是否破坏现有插件组合）；装后重启宿主，
+并在实例日志里确认该插件 `loaded`。
+
+### 本仓库按 npm 包规范组织，但**不发 npm 包**
+
+`package.json`（`main` / `exports` / `files` / `scripts`）、依赖声明、`npm test` 这些是**按 npm 包规范**写的，
+好处是工具链（pnpm 安装、ESM 解析、`file:` 依赖）开箱即用；但本插件**不打算发布到 npm registry**：
+
+- 插件与宿主 DSH 版本强绑定（`peerDependencies` / cordis 契约），发到公共 registry 无法保证版本匹配；
+- 安装路径只走**本地/源码**（`local-plugins/` + `file:` 依赖），不走 `npm i <包名>`；
+- 因此 README 等对外文档只描述本地安装步骤，**不写**"发不发 npm"这类说明（免得读者去 registry 找包）。
+
+（这条"不发 npm"的判断只写在本 skill 里供维护者参考；对外文档只写正确的安装方法。）
+
+### 从 GitHub 安装（可选，公开仓库）
+
+⚠️ **`dsh plugin --profile <名> add …` 实测会挂死且零输出**（两次都以 timeout 结束、日志为空）⇒
+安装改在**该 profile 目录里直跑 pnpm**（`dsh plugin` 的设计是把参数转发给 profile 的 pnpm，本应等价，
+但转发这条路当前不可用）：
+
+```bash
+cd <DSH_HOME>/profiles/<profile>
+pnpm add github:EIGHTfs/dsh-session-conductor#<commit>
+# 等价：pnpm add git+https://github.com/EIGHTfs/dsh-session-conductor.git#<commit>
+```
+
+**三层前置条件（实测按顺序踩到，缺一层就失败）**：
+
+1. **本机要有 `npm`** —— pnpm 构建 git 来源的包时会在临时目录执行 `npm install`；
+   缺 npm 时报 `ERR_PNPM_PREPARE_PACKAGE` + `spawn ENOENT: npm: command not found`。
+   （本机 2026-10-12 已装 npm 10.9.2：解包到 `<APP>/lib/node_modules/npm`，再链到
+   `<DSH 安装目录>/bin/npm` —— 系统级 bin 目录不可写。）
+2. **pnpm 11 默认禁止 git 源依赖执行构建脚本**（供应链策略）：只有带 `prepare`/`prepack` 的插件
+   需要放行，在 profile 的 `pnpm-workspace.yaml` 里加，否则报 `ERR_PNPM_GIT_DEP_PREPARE_NOT_ALLOWED`：
+
+   ```yaml
+   allowBuilds:
+     <包名>@https://codeload.github.com/<owner>/<repo>/tar.gz/<commit>: true
+   ```
+
+   ⚠️ key 里带 commit 哈希 ⇒ 换版本/换提交要同步改这一行。**本仓库没有 prepare/prepack ⇒ 无需这一步。**
+3. **用 `#<commit>` 固定版本** —— 本仓库远端暂无 tag（写 `#v1.0.x` 会拉不到）。
+
+其它：公开仓库匿名可装、私有仓库才需凭据；装完仍要补 `dsh.profile.bundles` +
+`cordis.patch.yml` 的顶层 `- insert:`，再重启确认 `loaded`。
+（有 prepare 的插件在 git 安装时会自动执行它 —— 例：dsh-git-push 的 prepare 构建不入库的
+`lib/client.js`，装完应确认产物在；本仓库无 prepare，装完即完整。）
+
+## 九、聊天框指令 `/model-switch`（用户视角）
+
+在聊天框里直接看/切成员（子代理）的模型，不必求 AI。**指令在插件加载时注册** —— 装好或更新后需重载一次实例，输入框里敲 `/model` 才有补全。
+
+| 输入 | 作用 | 输出要点 |
+|---|---|---|
+| `/model-switch` | 列成员与各自模型 | 每行给「最近请求=provider/model」（进程内真实请求记录，瞬时）；没有则退回「目标=…」或「未知」；两者不一致时附 `⚠️ 与目标不一致（下一回合生效前属正常）` |
+| `/model-switch <成员名或 sessionId>` | 查该成员**实际**在用哪个模型 | 优先读日志里的 `request/header`（请求级权威记录）+ 最近切换意图；日志尚无记录时回退显示「本次进程内观察到的最近请求」 |
+| `/model-switch <成员名或 sessionId> <provider>/<模型>` | 切换并回显查证 | 与 AI 工具同一套：生效方式 + 最近一次实际请求 + 判定（`✅ 已是新模型` / `⏳ 待下一回合生效`） |
+
+**三个别踩的坑**
+
+- **看到 ⏳ 不是失败**：切换本就下一回合生效（当前那次请求早已发出）。该成员下次请求时插件按 `agent/request` 事件判定，并把 `【切换查证】✅ 已确认生效：…` 或 `❌ 未生效：期望 X，实际 Y`（**不假装成功**）注入回发起方。
+- **别拿「意图」当结论**：判定只认请求时**真实使用**的 `data.header.config.{provider,model}`；`model/selection` 事件与会话里那句 `[model changed: …]` 提示都可能与实际不符 —— 实测出现过「提示是 agni、请求头仍是 wb」。
+- **模型必须写 `provider/model`**：写错会直接给出正确格式；成员用名字（支持唯一子串）或 `sessionId` 定位，重名会要求写全。
+
+实现见 `lib/features/member-model/command.js`；注册 API（`ctx.commands.register`）与守卫约定见「功能说明书」第九节。
+
+## 相关
+
+- dsh-session-conductor-functions（功能说明书，每个功能参数/返回/注意事项）
+- task-completion-report（任务完成汇报约定）
