@@ -6,7 +6,20 @@
 D:\dsh-home\profiles\desktop\node_modules\dsh-session-conductor   （registry 安装的原版，fork 时整目录复制过来）
 ```
 
-上游：https://github.com/EIGHTfs/dsh-session-conductor （MIT，作者 EIGHTfs）
+- 上游：https://github.com/EIGHTfs/dsh-session-conductor （MIT，作者 EIGHTfs）
+- 本 fork 的公开仓库：**https://github.com/WillenChow2013/dsh-session-conductor** （public，`main` 分支，带 `README-FORK.md` / `LICENSE` / 两个自测）
+
+## 从 GitHub 装（换机器 / 别人用）
+
+```powershell
+cd D:\dsh-home\profiles\desktop
+# package.json: "dsh-session-conductor": "github:WillenChow2013/dsh-session-conductor"
+pnpm install --no-frozen-lockfile
+```
+
+走 `github:` 安装时包会落成 `node_modules` 里的真实目录（与 registry 安装同构），依赖解析通常不用额外处理；
+若入口仍消失，跑一次 `node <包目录>/ensure-deps.mjs`（原因见下"为什么 link: 安装必须自带 node_modules"）。
+**这条路径尚未在本机验证过**（本机用的是 `link:`），第一条不走通就退回 `link:` + `ensure-deps.mjs`。
 
 ## 为什么 fork
 
@@ -71,10 +84,21 @@ npm run test:fork          # = test:tags + test:render，期望两项都 ✅
 接进（本机已接好，重装时照做）：
 
 ```powershell
+cd D:\dsh-home\plugins\dsh-session-conductor
+node ensure-deps.mjs      # 必需：重建 6 个依赖 junction（幂等，输出 6 行 ok）
 cd D:\dsh-home\profiles\desktop
 # package.json: "dsh-session-conductor": "link:D:/dsh-home/plugins/dsh-session-conductor"
 pnpm install --no-frozen-lockfile
 ```
+
+### 为什么 `link:` 安装必须自带 `node_modules`
+
+本包的 `package.json` 没有声明 `dependencies`——它靠"被装在 profile 的 node_modules 里"来借用宿主那批包。
+`link:` 装出来只是 profile 里一个 **junction**，而 Node 解析 ESM 依赖时用**真实路径**（`D:\dsh-home\plugins\...`），
+往上找不到 `@deepseek-ai/schemastery` / `zod` / `dsh-llm` / `dsh-session` / `dsh-session-title` / `dsh-storage-domain`
+就整体加载失败，**表现为侧栏「会话管理」入口静默消失、控制台一个 JS 报错都没有**（踩过一次，见 `ensure-deps.mjs` 头注释）。
+`ensure-deps.mjs` 把这 6 个包 junction 到 profile（`@deepseek-ai/schemastery`、`zod`）或 app 解包目录（其余 4 个，用
+`DSH_APP_NODE_MODULES` 覆盖），应用升级后重跑一次即可。
 
 回退（回到 registry 原版）：
 
