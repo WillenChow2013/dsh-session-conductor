@@ -125,7 +125,7 @@ const session = {
   updatedAt: Date.now(),
   archived: false,
   running: false,
-  live: false,
+  live: true,
   autoRename: false,
   autoContinue: false,
   continueRunning: false,
@@ -252,6 +252,19 @@ const findByText = (tree, want, type) => {
   });
   return best;
 };
+// 文本「包含」匹配（筛选 chip 末尾带 ×，合成文本是 "#开发 1×"，所以用包含匹配找它）
+const findByTextContaining = (tree, want, type) => {
+  let best = null;
+  let bestLen = Infinity;
+  walk(tree, (e) => {
+    if (type && e.type !== type) return;
+    const text = textOf(e);
+    if (!text.includes(want) || text.length >= bestLen) return;
+    best = e;
+    bestLen = text.length;
+  });
+  return best;
+};
 const click = (node) => {
   if (typeof node?.props?.onClick !== "function") throw new Error("目标没有 onClick");
   return node.props.onClick({ stopPropagation() {}, preventDefault() {}, currentTarget: el(), target: { value: "" } });
@@ -337,13 +350,13 @@ await check("点徽章进入筛选，筛选条与批量入口出现", async () =
   click(findByText(tree, "#开发", "span"));
   tree = await settle();
   const all = textOf(tree);
-  assert.ok(all.includes("标签："), "筛选条标签名没出现");
-  assert.ok(all.includes("#开发 1"), `筛选条里没有「#开发 1」；实际=${JSON.stringify(all.slice(0, 300))}`);
-  assert.ok(findByText(tree, "取消筛选", "button"), "筛选态下没有「取消筛选」按钮");
-  assert.ok(findByText(tree, "全选筛选结果 (1)", "button"), "筛选态下没有「全选筛选结果」");
+  assert.ok(all.includes(zhDict["filter.label"]), "筛选条标签名没出现");
+  assert.ok(findByTextContaining(tree, "#开发 1", "span"), `筛选条里没有「#开发 1」；实际=${JSON.stringify(all.slice(0, 300))}`);
+  assert.ok(findByText(tree, zhDict["tag.clearFilter"], "button"), "筛选态下没有「取消筛选」按钮");
+  assert.ok(findByTextContaining(tree, "全选筛选结果 (1)", "button"), "筛选态下没有「全选筛选结果」");
 });
 
-// ④ 点「＋标签」→ 行内编辑器出现（不是 window.prompt）
+// ④ 点「＋标签」→ 浮窗（popover）出现，带输入框与「添加」按钮（不是 window.prompt）
 const findTagInput = (root0) => {
   let hit = null;
   walk(root0, (e) => {
@@ -351,11 +364,11 @@ const findTagInput = (root0) => {
   });
   return hit;
 };
-await check("「＋标签」打开行内编辑器", async () => {
+await check("「＋标签」打开标签浮窗", async () => {
   click(findByText(tree, "＋标签", "button"));
   tree = await settle();
   assert.ok(findTagInput(tree), "没有出现标签输入框");
-  assert.ok(findByText(tree, "添加", "button"), "编辑器里没有「添加」按钮");
+  assert.ok(findByText(tree, "添加", "button"), "浮窗里没有「添加」按钮");
 });
 
 // ⑤ 输入并添加 → 徽章出现 + localStorage 落盘
@@ -369,9 +382,30 @@ await check("输入标签并添加后渲染徽章且落盘", async () => {
   assert.equal(JSON.stringify(saved.tags[session.id]), JSON.stringify(["开发", "教学"]), "标签没有写进 localStorage");
 });
 
-// ⑥ 批量：全选筛选结果 → 出现批量打标签 / 归档勾选
+// ⑥ 卡片「⋯」菜单：低频操作（置为不活跃 / 归档）收进菜单，按钮行不再平铺
+const findMoreButton = (root0) => {
+  let hit = null;
+  walk(root0, (e) => {
+    if (!hit && e.type === "button" && e.props?.title === zhDict["row.more"]) hit = e;
+  });
+  return hit;
+};
+await check("卡片「⋯」菜单收纳低频操作", async () => {
+  assert.ok(!findByText(tree, zhDict["action.archive"], "button"), "「归档」不应再平铺在按钮行里");
+  const more = findMoreButton(tree);
+  assert.ok(more, "卡片上没有「更多操作」按钮");
+  click(more);
+  tree = await settle();
+  assert.ok(findByText(tree, zhDict["action.release"], "button"), "菜单里没有「置为不活跃」");
+  assert.ok(findByText(tree, zhDict["action.archive"], "button"), "菜单里没有「归档」");
+  click(findMoreButton(tree));
+  tree = await settle();
+  assert.ok(!findByText(tree, zhDict["action.archive"], "button"), "再次点击后菜单没有收起");
+});
+
+// ⑦ 批量：全选筛选结果 → 出现批量打标签 / 归档勾选
 await check("全选筛选结果后出现批量操作", async () => {
-  click(findByText(tree, "全选筛选结果 (1)", "button"));
+  click(findByTextContaining(tree, "全选筛选结果 (1)", "button"));
   tree = await settle();
   const all = textOf(tree);
   assert.ok(all.includes("批量打标签 (1)"), "勾选后没有「批量打标签」");
@@ -389,7 +423,7 @@ await check("筛选无结果时显示标签专属空态", async () => {
   tree = await settle();
   click(findByText(tree, "会话管理", "button"));
   tree = await settle();
-  const chip = findByText(tree, "#无关标签 1", "span");
+  const chip = findByTextContaining(tree, "#无关标签 1", "span");
   assert.ok(chip, `重挂后「#无关标签 1」没进筛选条；实际文本=${JSON.stringify(textOf(tree).slice(0, 300))}`);
   click(chip);
   tree = await settle();

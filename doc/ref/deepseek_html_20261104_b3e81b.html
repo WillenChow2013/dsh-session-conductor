@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>会话管理 - 极限紧凑版</title>
+<style>
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    body { background-color: #e5e7eb; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 20px; }
+
+    /* 主面板 */
+    .window {
+        width: 720px;
+        background-color: #FFF;
+        border-radius: 12px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        border: 1px solid #E5E7EB;
+        height: 800px;
+    }
+
+    /* 顶部 Header */
+    .header { padding: 20px 24px 0; border-bottom: 1px solid #F0F0F0; }
+    .header-title { font-size: 18px; font-weight: 600; color: #111; display: flex; justify-content: space-between; align-items: baseline;}
+    .header-subtitle { font-size: 12px; color: #666; font-weight: normal; }
+    
+    /* Tabs */
+    .tabs { display: flex; gap: 24px; margin-top: 20px; }
+    .tab { font-size: 13px; color: #666; padding-bottom: 10px; cursor: pointer; position: relative; font-weight: 500;}
+    .tab.active { color: #111; font-weight: 600; }
+    .tab.active::after { content: ''; position: absolute; bottom: -1px; left: 0; width: 100%; height: 2px; background-color: #3b82f6; border-radius: 2px; }
+    .tab .count { font-size: 11px; color: #999; margin-left: 2px; font-weight: normal;}
+
+    /* 搜索与筛选区 */
+    .toolbar { padding: 16px 24px; display: flex; flex-direction: column; gap: 12px; border-bottom: 1px solid #F0F0F0;}
+    
+    .search-row { display: flex; gap: 12px; align-items: center; }
+    .search-box { flex: 1; display: flex; align-items: center; background: #F3F4F6; border-radius: 6px; padding: 8px 12px; border: 1px solid transparent; transition: all 0.2s;}
+    .search-box:focus-within { border-color: #93C5FD; background: #FFF; box-shadow: 0 0 0 2px rgba(59,130,246,0.1);}
+    .search-box input { border: none; background: transparent; outline: none; font-size: 13px; width: 100%; color: #333; }
+    .search-box input::placeholder { color: #9CA3AF; }
+    
+    .btn-outline { font-size: 13px; padding: 7px 14px; border: 1px solid #D1D5DB; border-radius: 6px; background: #FFF; cursor: pointer; color: #444; font-weight: 500; white-space: nowrap;}
+    .btn-outline:hover { background: #F9FAFB; }
+    .btn-outline.danger { color: #EF4444; border-color: #FCA5A5; }
+    .btn-outline.danger:hover { background: #FEF2F2; }
+
+    .filter-row { display: flex; gap: 12px; align-items: center; justify-content: space-between;}
+    .filter-left { display: flex; gap: 8px; align-items: center; flex-wrap: wrap;}
+    .filter-label { font-size: 13px; color: #666; }
+    .chip { font-size: 12px; background: #EFF6FF; color: #2563EB; padding: 4px 10px; border-radius: 6px; border: 1px solid #DBEAFE; display: inline-flex; align-items: center; gap: 6px; font-weight: 500;}
+    .chip .close { cursor: pointer; opacity: 0.6; font-size: 14px; line-height:1;}
+    .chip .close:hover { opacity: 1; }
+
+    /* 时间筛选下拉 */
+    .time-filter { position: relative; }
+    .btn-time { font-size: 12px; color: #444; padding: 5px 10px; border: 1px solid #D1D5DB; border-radius: 6px; background: #FFF; cursor: pointer; display: flex; align-items: center; gap: 6px; font-weight: 500;}
+    .btn-time:hover { background: #F9FAFB; }
+    .time-dropdown {
+        display: none; position: absolute; top: 100%; right: 0; margin-top: 6px; width: 220px;
+        background: #FFF; border-radius: 8px; box-shadow: 0 4px 20px rgba(0,0,0,0.15); border: 1px solid #E5E7EB;
+        padding: 8px; z-index: 100;
+    }
+    .time-dropdown.show { display: block; }
+    .time-option { font-size: 12px; color: #333; padding: 8px 12px; border-radius: 4px; cursor: pointer; }
+    .time-option:hover { background: #F3F4F6; }
+    .time-option.selected { color: #3b82f6; background: #EFF6FF; font-weight: 600; }
+
+    /* 树形列表主体 */
+    .tree-body { padding: 16px 24px; overflow-y: auto; flex: 1; }
+
+    /* 父节点 */
+    .group-header { display: flex; align-items: center; padding: 6px 0; cursor: pointer; user-select: none; margin-bottom: 6px; }
+    .group-header:hover .group-title { color: #111; }
+    .chevron { width: 16px; height: 16px; margin-right: 8px; color: #888; transition: transform 0.2s; }
+    .group-header.collapsed .chevron { transform: rotate(-90deg); }
+    .group-title { font-size: 14px; font-weight: 600; color: #444; flex: 1; transition: color 0.2s;}
+    .group-count { font-size: 12px; color: #888; background: #F3F4F6; padding: 2px 8px; border-radius: 12px; font-weight: 500;}
+
+    /* 子节点列表容器 */
+    .children-list { padding-left: 20px; margin-left: 7px; border-left: 1px solid #E5E7EB; display: flex; flex-direction: column; gap: 8px; margin-bottom: 20px; }
+    .children-list.hidden { display: none; }
+
+    /* ================= 核心：极限压缩的会话卡片 ================= */
+    .session-card {
+        position: relative;
+        padding: 10px 14px; /* 大幅缩减上下内边距 */
+        border-radius: 8px;
+        transition: all 0.2s;
+        background: #FFF;
+        border: 1px solid #E5E7EB;
+        display: flex;
+        flex-direction: column;
+        gap: 6px; /* 紧凑行间距 */
+    }
+
+    .session-card:hover { border-color: #D1D5DB; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }
+    .session-card.active { border-color: #3B82F6; background: #F8FAFC; }
+    .session-card.active::before { content: ''; position: absolute; left: -21px; top: 10px; bottom: 10px; width: 3px; background: #3B82F6; border-radius: 2px; }
+
+    /* 第一行：标题 + 状态 */
+    .card-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .title-wrap { display: flex; align-items: center; gap: 8px; flex: 1; overflow: hidden; }
+    .checkbox { width: 15px; height: 15px; border: 1px solid #D1D5DB; border-radius: 4px; cursor: pointer; accent-color: #3B82F6;}
+    .session-title { font-size: 14px; font-weight: 600; color: #111; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .status-badge { font-size: 11px; padding: 1px 6px; border-radius: 12px; background: #ECFDF5; color: #059669; border: 1px solid #D1FAE5; flex-shrink: 0; font-weight: 500;}
+
+    /* 第二行：元数据 (工作区 + 时间 + 标签) */
+    .card-meta { font-size: 12px; color: #888; display: flex; align-items: center; gap: 6px; padding-left: 23px; flex-wrap: wrap;}
+    .card-meta .workspace-name { color: #555; font-weight: 500;}
+    .meta-divider { color: #D1D5DB; }
+    .tag { font-size: 11px; background: #F3E8FF; color: #7E22CE; padding: 1px 6px; border-radius: 12px; font-weight: 500;}
+
+    /* 🌟 重点修改：底部区域 (开关 + 操作按钮) 同行显示 */
+    .card-bottom-row {
+        display: flex;
+        align-items: center;
+        padding-left: 23px;
+        margin-top: 2px;
+        justify-content: space-between;
+        min-height: 28px; /* 保证高度稳定 */
+    }
+
+    .card-switches { display: flex; align-items: center; gap: 16px;}
+    .switch-item { display: flex; align-items: center; gap: 4px; font-size: 12px; color: #555; cursor: pointer; user-select: none;}
+    .switch-item input[type="checkbox"] { width: 13px; height: 13px; cursor: pointer; accent-color: #3b82f6;}
+
+    /* 操作按钮组 */
+    .card-actions { 
+        display: flex; align-items: center; gap: 6px;
+        opacity: 0; transform: translateX(10px); transition: all 0.2s ease;
+        position: relative;
+    }
+    
+    /* Hover 时，操作按钮浮现 */
+    .session-card:hover .card-actions, 
+    .session-card.active .card-actions {
+        opacity: 1; transform: translateX(0);
+    }
+
+    .btn-action { font-size: 12px; padding: 3px 8px; border: 1px solid #E5E7EB; border-radius: 4px; background: #FFF; cursor: pointer; color: #444; transition: all 0.15s; display: flex; align-items: center; gap: 4px;}
+    .btn-action:hover { background: #F9FAFB; border-color: #D1D5DB; color: #111;}
+    .btn-action.danger { color: #EF4444; border-color: #FECACA; }
+    .btn-action.danger:hover { background: #FEF2F2; border-color: #FCA5A5; }
+    .btn-action.icon-only { padding: 3px 6px; color: #6B7280;}
+    .btn-action.icon-only:hover { color: #3B82F6; border-color: #93C5FD;}
+
+    /* 标签浮窗 */
+    .tag-popover {
+        position: absolute; bottom: 100%; right: 0; margin-bottom: 8px; width: 260px;
+        background: #FFF; border-radius: 8px; box-shadow: 0 4px 24px rgba(0,0,0,0.15); border: 1px solid #E5E7EB;
+        padding: 12px; display: none; z-index: 200;
+    }
+    .tag-popover.show { display: block; }
+    .tag-input-wrap { display: flex; border: 1px solid #D1D5DB; border-radius: 6px; overflow: hidden; margin-bottom: 8px; }
+    .tag-input-wrap:focus-within { border-color: #3B82F6; box-shadow: 0 0 0 2px rgba(59,130,246,0.2);}
+    .tag-input-wrap input { border: none; outline: none; padding: 6px 10px; font-size: 12px; flex: 1; color: #333; }
+    .tag-input-wrap button { border: none; background: #F9FAFB; padding: 0 12px; font-size: 12px; color: #3B82F6; cursor: pointer; border-left: 1px solid #D1D5DB; font-weight: 500; }
+    .tag-input-wrap button:hover { background: #F3F4F6; }
+    .popover-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px;}
+    .popover-tags .tag { display: inline-flex; align-items: center; gap: 4px; }
+    .popover-tags .tag .close { cursor: pointer; opacity: 0.6; font-size: 14px; line-height: 1;}
+    .popover-hint { font-size: 11px; color: #9CA3AF; line-height: 1.4;}
+
+    /* 滚动条 */
+    ::-webkit-scrollbar { width: 8px; }
+    ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 10px; }
+</style>
+</head>
+<body>
+
+<div class="window">
+    <!-- Header -->
+    <div class="header">
+        <div class="header-title">
+            会话管理 
+            <span class="header-subtitle">归档可恢复 · 支持删除 · 中断自动续跑</span>
+        </div>
+        <div class="tabs">
+            <div class="tab active">全部会话</div>
+            <div class="tab">已归档 <span class="count">(0)</span></div>
+            <div class="tab">活跃 <span class="count">(4)</span></div>
+            <div class="tab">回收站 <span class="count">(0)</span></div>
+        </div>
+    </div>
+
+    <!-- 工具栏 -->
+    <div class="toolbar">
+        <div class="search-row">
+            <div class="search-box">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#9CA3AF" stroke-width="2" style="margin-right: 8px;"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+                <input type="text" placeholder="搜索标题 / 目录 / 关键词 (回车全搜)">
+            </div>
+            <button class="btn-outline">全文搜索</button>
+            <button class="btn-outline danger">删除选中 (0)</button>
+        </div>
+
+        <div class="filter-row">
+            <div class="filter-left">
+                <span class="filter-label">筛选</span>
+                <div class="chip">#开发 3 <span class="close">×</span></div>
+                <div class="chip">#AI进化 1 <span class="close">×</span></div>
+            </div>
+            
+            <div class="time-filter">
+                <button class="btn-time" onclick="toggleTimeDropdown(event)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                    时间: 全部 <span style="font-size: 10px;">▼</span>
+                </button>
+                <div class="time-dropdown" id="timeDropdown">
+                    <div class="time-option selected" onclick="selectTimeOption(this)">全部时间</div>
+                    <div class="time-option" onclick="selectTimeOption(this)">今天</div>
+                    <div class="time-option" onclick="selectTimeOption(this)">近 7 天</div>
+                    <div class="time-option" onclick="selectTimeOption(this)">近 30 天</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 树形列表区 -->
+    <div class="tree-body">
+        
+        <!-- 工作区: AI进化 -->
+        <div class="group-header" onclick="toggleGroup(this)">
+            <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            <span class="group-title">AI 进化</span>
+            <span class="group-count">4</span>
+        </div>
+        
+        <div class="children-list">
+            <!-- 会话卡片 1 (激活状态) -->
+            <div class="session-card active">
+                <div class="card-header">
+                    <div class="title-wrap">
+                        <input type="checkbox" class="checkbox" checked>
+                        <span class="session-title">会话管理插件缺少自定义标签</span>
+                    </div>
+                    <span class="status-badge">进行中</span>
+                </div>
+                <div class="card-meta">
+                    <span class="workspace-name">AI 进化</span>
+                    <span class="meta-divider">·</span>
+                    <span>27 分钟前</span>
+                    <span class="meta-divider">·</span>
+                    <span class="tag">#AI进化</span>
+                </div>
+                
+                <!-- 紧凑版底行：开关 + 操作按钮 -->
+                <div class="card-bottom-row">
+                    <div class="card-switches">
+                        <label class="switch-item"><input type="checkbox"> 自动重命名</label>
+                        <label class="switch-item"><input type="checkbox"> 自动续跑</label>
+                    </div>
+                    
+                    <div class="card-actions">
+                        <button class="btn-action" onclick="toggleTagPopover(event, this)">+ 标签</button>
+                        <button class="btn-action">置为不活跃</button>
+                        <button class="btn-action">归档</button>
+                        <button class="btn-action">撤回消息</button>
+                        <button class="btn-action danger">删除</button>
+                        <button class="btn-action icon-only" title="复制 Session ID">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                        
+                        <div class="tag-popover" id="tagPopover">
+                            <div class="tag-input-wrap">
+                                <input type="text" placeholder="输入标签，回车确认" id="tagInput">
+                                <button onclick="addNewTag()">添加</button>
+                            </div>
+                            <div class="popover-tags" id="tagList">
+                                <span class="tag">#AI进化 <span class="close" onclick="removeTag(this)">×</span></span>
+                            </div>
+                            <div class="popover-hint">标签只存在本机浏览器；单会话最多 6 个，全局最多 40 个，单个不超过 12 字。</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 会话卡片 2 (普通状态) -->
+            <div class="session-card">
+                <div class="card-header">
+                    <div class="title-wrap">
+                        <input type="checkbox" class="checkbox">
+                        <span class="session-title">AI进化</span>
+                    </div>
+                    <span class="status-badge">进行中</span>
+                </div>
+                <div class="card-meta">
+                    <span class="workspace-name">AI 进化</span>
+                    <span class="meta-divider">·</span>
+                    <span>36 分钟前</span>
+                </div>
+                
+                <div class="card-bottom-row">
+                    <div class="card-switches">
+                        <label class="switch-item"><input type="checkbox"> 自动重命名</label>
+                        <label class="switch-item"><input type="checkbox"> 自动续跑</label>
+                    </div>
+                    
+                    <div class="card-actions">
+                        <button class="btn-action" onclick="toggleTagPopover(event, this)">+ 标签</button>
+                        <button class="btn-action">置为不活跃</button>
+                        <button class="btn-action">归档</button>
+                        <button class="btn-action">撤回消息</button>
+                        <button class="btn-action danger">删除</button>
+                        <button class="btn-action icon-only" title="复制 Session ID">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                        <div class="tag-popover">
+                            <div class="tag-input-wrap">
+                                <input type="text" placeholder="输入标签，回车确认">
+                                <button onclick="addNewTag()">添加</button>
+                            </div>
+                            <div class="popover-tags"></div>
+                            <div class="popover-hint">标签只存在本机浏览器；单会话最多 6 个，全局最多 40 个，单个不超过 12 字。</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="group-header collapsed" onclick="toggleGroup(this)">
+            <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            <span class="group-title">shadow-camera-system</span>
+            <span class="group-count">2</span>
+        </div>
+        <div class="children-list hidden"></div>
+    </div>
+</div>
+
+<script>
+    // 树状折叠
+    function toggleGroup(header) {
+        header.classList.toggle('collapsed');
+        header.nextElementSibling.classList.toggle('hidden');
+    }
+
+    // 时间下拉
+    function toggleTimeDropdown(event) {
+        event.stopPropagation();
+        document.getElementById('timeDropdown').classList.toggle('show');
+    }
+    function selectTimeOption(element) {
+        document.querySelectorAll('.time-option').forEach(el => el.classList.remove('selected'));
+        element.classList.add('selected');
+        const btn = document.querySelector('.btn-time');
+        btn.innerHTML = `<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg> 时间: ${element.innerText} <span style="font-size: 10px;">▼</span>`;
+        document.getElementById('timeDropdown').classList.remove('show');
+    }
+
+    // 标签浮窗交互
+    function toggleTagPopover(event, btnElement) {
+        event.stopPropagation();
+        document.querySelectorAll('.tag-popover').forEach(popover => {
+            if (popover !== btnElement.nextElementSibling) popover.classList.remove('show');
+        });
+        const popover = btnElement.nextElementSibling;
+        popover.classList.toggle('show');
+        if (popover.classList.contains('show')) {
+            const input = popover.querySelector('input');
+            input.value = ''; 
+            setTimeout(() => input.focus(), 50);
+        }
+    }
+
+    function addNewTag() {
+        const activePopover = document.querySelector('.tag-popover.show');
+        if (!activePopover) return;
+        const input = activePopover.querySelector('input');
+        const tagList = activePopover.querySelector('.popover-tags');
+        const tagText = input.value.trim();
+        if (tagText) {
+            const existingTags = Array.from(tagList.querySelectorAll('.tag')).map(el => el.innerText.replace('×', '').trim());
+            if (!existingTags.includes('#' + tagText) && !existingTags.includes(tagText)) {
+                const newTag = document.createElement('span');
+                newTag.className = 'tag';
+                const formattedTag = tagText.startsWith('#') ? tagText : '#' + tagText;
+                newTag.innerHTML = `${formattedTag} <span class="close" onclick="removeTag(this)">×</span>`;
+                tagList.appendChild(newTag);
+                input.value = '';
+            } else { input.value = ''; }
+        }
+    }
+
+    function removeTag(closeElement) { closeElement.parentElement.remove(); }
+
+    document.querySelectorAll('.tag-input-wrap input').forEach(input => {
+        input.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') { e.preventDefault(); addNewTag(); }
+        });
+    });
+
+    document.addEventListener('click', function(event) {
+        const timeDropdown = document.getElementById('timeDropdown');
+        const timeBtn = document.querySelector('.btn-time');
+        if (timeDropdown.classList.contains('show') && !timeDropdown.contains(event.target) && !timeBtn.contains(event.target)) {
+            timeDropdown.classList.remove('show');
+        }
+        if (!event.target.closest('.tag-popover') && !event.target.closest('.btn-action')) {
+            document.querySelectorAll('.tag-popover').forEach(popover => popover.classList.remove('show'));
+        }
+    });
+</script>
+
+</body>
+</html>

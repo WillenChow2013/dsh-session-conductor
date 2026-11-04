@@ -31,10 +31,10 @@ pnpm install --no-frozen-lockfile
 
 | 文件 | 改动 |
 | --- | --- |
-| `lib/client.js` | ① 顶部注入 `window.__SC_TAGS__` 纯函数模块（约 110 行）；② `SessionManagerPanel` 内加标签状态 + `TagEditor` 组件 + 打标/筛选/批量处理函数；③ 行内「＋标签」按钮、标签徽章、标签筛选条、批量操作行、空态文案 |
+| `lib/client.js` | ① 顶部注入 `window.__SC_TAGS__` 纯函数模块（约 110 行）；② `SessionManagerPanel` 内加标签状态 + `TagPopover` 浮窗 + 打标/筛选/批量处理函数；③ 行内「＋标签」按钮、标签徽章、标签筛选条、批量操作行、空态文案；④（fork.tags.2）按设计稿重排面板：`dsh-sc-*` 样式表、卡片/树状分组、时间筛选、说明页按钮 |
 | `lib/i18n/zh.json`、`en.json` | 各加 21 个 `tag.*` 键（放在 `sessionConductor` 命名空间，锚点为 `deleteByRule.andHint` 之后） |
 | `test/tags.test.mjs` | 新增自测（17 项断言），跑 `npm run test:tags` |
-| `package.json` | `version` → `1.3.13-fork.tags.1`；`scripts.test:tags`；description 补一句 fork 说明 |
+| `package.json` | `version` → `1.3.13-fork.tags.2`；`scripts.test:tags` / `test:render` / `test:fork`；description 补一句 fork 说明 |
 
 **注意：`lib/client.js` 是上游的预构建产物（172 KB / 2815 行），仓库里没有它的构建脚本。**
 `lib/client-parts/**` 是源码形态但不是它的输入（行号、格式都对不上，`package.json` 的 `files` 里也没有构建入口），
@@ -116,8 +116,28 @@ diff 全部落在 `lib/client.js`（单文件）+ 两个 i18n JSON + 一个新�
 
 1. 把新版 `lib/` 覆盖到本 fork（先备份本 fork 的 `lib/client.js`）
 2. 把本 fork 备份里的 `window.__SC_TAGS__` 段整段粘回新 client.js（在 `window.__ModuleLoader__.load({ id: "dsh-session-conductor"` 之前）
-3. 用文本锚点（不是行号）重新插：`S.badge` 之后插样式、`trashBatch` 状态之后插状态、`SessionIcon` 之后插 `TagEditor`、`replaceSelected` 之后插处理函数、`filteredShown` 上加 `.filter(matchesTagFilter)`、`rowMeta` 之后插徽章、`opsButtons` 首位插「＋标签」、`rowOps` 末尾插编辑器、工具行后插筛选条与批量行、空态三元加 `tagFilter` 分支
+3. 用文本锚点（不是行号）重新插：`S.badge` 之后插样式、`trashBatch` 状态之后插状态、`SessionIcon` 之后插 `TagPopover`、`replaceSelected` 之后插处理函数、`filteredShown` 上加 `.filter(matchesTagFilter)`、`rowMeta` 之后插徽章、`opsButtons` 首位插「＋标签」、`rowOps` 末尾插浮窗、工具行后插筛选条与批量行、空态三元加 `tagFilter` 分支；面板整体结构见下文「1.3.13-fork.tags.2」一节
 4. 把新版缺的 `tag.*` i18n 键补回 `sessionConductor` 命名空间
 5. `npm run test:tags` + 浏览器五项人工验证
 
-搜索标记：`window.__SC_TAGS__`、`tagChip`、`TagEditor`、`tag.archiveSelected`。
+搜索标记：`window.__SC_TAGS__`、`tagChip`、`TagPopover`、`tag.archiveSelected`。
+
+## 1.3.13-fork.tags.2：面板 UI 对齐设计稿
+
+参照 `doc/ref/deepseek_html_20261104_b3e81b.html`（"会话管理 - 极限紧凑版"）重做了面板外观与交互，
+位置仍是 **DSH GUI 右侧抽屉**（不是居中弹窗），只把内部布局按设计稿收紧：
+
+- 宽度 640px（窄屏 `max-width:100%`），左侧阴影 + 圆角左边；顶栏「会话管理 / 归档可恢复 · 支持删除 · 中断自动续跑」+ `?` 说明 + `✕`。
+- 四个 Tab（全部 / 已归档 / 活跃 / 回收站，带计数），搜索行（回车全文搜索、全文搜索、删除选中），
+  筛选行（`#标签 n` 可点筛 / 取消筛选 / 全选筛选结果 + 时间筛选下拉 + 「⋯」更多）。
+- 灰色树状分组（可折叠、右侧计数胶囊），会话卡片：蓝色左边条表示活跃、标题 + 状态胶囊（进行中/已归档/运行中/已中断）、
+  元信息「工作区 · 时间 · #标签」、底部开关（自动重命名 / 自动续跑）与 hover/活跃时显示的按钮组（＋标签 / 撤回消息 / 删除 / `⋯` / 复制 ID），
+  `⋯` 里放低频操作（置为不活跃、归档 / 恢复、分析）——按钮行不再把删除按钮挤出面板。
+- **＋标签改为浮窗**：点击在按钮下方（空间不足时自动翻到上方）弹出 260px 卡片，含输入框 + 添加、本会话已有标签（× 删除）、
+  候选标签、上限提示；点空白处关闭。批量打标签复用同一浮窗。
+- 时间筛选（全部 / 今天 / 近 7 天 / 近 30 天）真正参与列表过滤；「按条件删除」「释放全部空闲」收进「⋯」；
+  使用说明从第 5 个 Tab 改成顶栏 `?`。
+- 修复：Windows 工作区路径 `E:\dev\AI进化` 与分组路径 `E:/dev/AI进化` 因斜杠不同而不匹配、全部落进「未分组」（`norm()` 统一反斜杠）。
+
+验证：`node test/run-all.mjs`（标签 17 项 + 面板渲染 7 项），以及 `.patch/preview.mjs` 生成的静态预览（`.patch/preview.html`）
+在 1280×1000 / 1440×900 下截图核对。改完需刷新 DSH GUI 才加载新 bundle。
