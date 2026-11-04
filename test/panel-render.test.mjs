@@ -431,4 +431,39 @@ await check("筛选无结果时显示标签专属空态", async () => {
   assert.ok(textOf(tree).includes(empty), `没有出现标签专属空态「${empty}」`);
 });
 
+// ⑧ 删除语义拆分：卡片「删除」= 立即清盘（/delete-permanent）；「移入回收站」收在「⋯」菜单里
+await check("卡片「删除」走永久删除，「移入回收站」收在「⋯」菜单", async () => {
+  host.resetStores();
+  tree = await settle();
+  click(findByText(tree, "会话管理", "button"));
+  tree = await settle();
+
+  const calls = [];
+  const prevFetch = sandbox.window.__scFetch;
+  sandbox.window.__scFetch = async (url, init) => {
+    if (typeof url === "string") calls.push({ url, body: init?.body });
+    return prevFetch(url, init);
+  };
+  try {
+    click(findMoreButton(tree));
+    tree = await settle();
+    const trashItem = findByText(tree, zhDict["action.trash"], "button");
+    assert.ok(trashItem, "「⋯」菜单里没有「移入回收站」");
+    click(findMoreButton(tree));
+    tree = await settle();
+    assert.ok(!findByText(tree, zhDict["action.trash"], "button"), "「⋯」菜单没有收起");
+
+    const delButton = findByText(tree, zhDict["action.delete"], "button");
+    assert.ok(delButton, "卡片上没有「删除」按钮");
+    click(delButton);
+    tree = await settle();
+    const permanent = calls.filter((c) => c.url.includes("/delete-permanent"));
+    assert.equal(permanent.length, 1, `点「删除」应请求 /delete-permanent；实际=${JSON.stringify(calls.map((c) => c.url))}`);
+    assert.match(String(permanent[0].body), /"sessionId"/, "永久删除请求体里没有 sessionId");
+    assert.ok(!calls.some((c) => /\/delete-batch|\/delete$/.test(c.url)), "点「删除」不应走回收站链路");
+  } finally {
+    sandbox.window.__scFetch = prevFetch;
+  }
+});
+
 console.log(`✅ 面板渲染自测通过：${pass} 项`);
